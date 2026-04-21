@@ -7,6 +7,17 @@ import { join } from "node:path";
 
 const runBin = promisify(execFile);
 
+const MAX_BODY_BYTES = 64 * 1024;
+
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 const SCHEDULES_DIR = join(homedir(), ".claude", "slack", "schedules");
 const LOGS_DIR = join(homedir(), ".claude", "slack", "logs");
 const LAUNCH_AGENTS_DIR = join(
@@ -45,10 +56,14 @@ function agentPath(name: string): string {
 }
 
 function plistXmlForCalendarDict(cal: CalendarInterval): string {
+  const allowedKeys = new Set(["Minute", "Hour", "Day", "Weekday", "Month"]);
   const entries: string[] = [];
   for (const [k, v] of Object.entries(cal)) {
     if (v === undefined) continue;
-    entries.push(`    <key>${k}</key><integer>${v}</integer>`);
+    if (!allowedKeys.has(k)) continue;
+    const num = Number(v);
+    if (!Number.isInteger(num) || num < 0 || num > 366) continue;
+    entries.push(`    <key>${escapeXml(k)}</key><integer>${num}</integer>`);
   }
   return `  <dict>\n${entries.join("\n")}\n  </dict>`;
 }
@@ -63,34 +78,35 @@ function buildPlist(req: ScheduleRequest, webhook: string): string {
   const errPath = join(LOGS_DIR, `${label(req.name)}.err.log`);
   const cwd = req.cwd ?? homedir();
 
+  const e = escapeXml; // alias for readability
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${label(req.name)}</string>
+  <string>${e(label(req.name))}</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${RUN_SCRIPT}</string>
-    <string>${req.name}</string>
-    <string>${String(req.maxBudgetUsd ?? 5)}</string>
+    <string>${e(RUN_SCRIPT)}</string>
+    <string>${e(req.name)}</string>
+    <string>${e(String(req.maxBudgetUsd ?? 5))}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${cwd}</string>
+  <string>${e(cwd)}</string>
   <key>StandardOutPath</key>
-  <string>${logPath}</string>
+  <string>${e(logPath)}</string>
   <key>StandardErrorPath</key>
-  <string>${errPath}</string>
+  <string>${e(errPath)}</string>
   <key>RunAtLoad</key>
   <false/>
   <key>StartCalendarInterval</key>
 ${calXml}
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HOME</key><string>${homedir()}</string>
-    <key>PATH</key><string>${homedir()}/.local/bin:${homedir()}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>SLACK_COMPLETION_WEBHOOK</key><string>${webhook}</string>
+    <key>HOME</key><string>${e(homedir())}</string>
+    <key>PATH</key><string>${e(`${homedir()}/.local/bin:${homedir()}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`)}</string>
+    <key>SLACK_COMPLETION_WEBHOOK</key><string>${e(webhook)}</string>
   </dict>
 </dict>
 </plist>
@@ -172,9 +188,19 @@ export async function startSchedulerServer(opts: {
       return;
     }
     let body = "";
+    let bytes = 0;
     req.setEncoding("utf8");
-    req.on("data", (c) => (body += c));
+    req.on("data", (c) => {
+      bytes += Buffer.byteLength(c as string);
+      if (bytes > MAX_BODY_BYTES) {
+        res.writeHead(413).end("Request too large");
+        req.destroy();
+        return;
+      }
+      body += c;
+    });
     req.on("end", async () => {
+      if (bytes > MAX_BODY_BYTES) return;
       try {
         const data = body ? (JSON.parse(body) as Record<string, unknown>) : {};
         const url = req.url ?? "";

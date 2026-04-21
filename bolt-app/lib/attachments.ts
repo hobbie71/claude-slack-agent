@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 
 interface SlackFile {
@@ -40,9 +40,10 @@ export async function downloadFiles(
       continue;
     }
     const buf = Buffer.from(await res.arrayBuffer());
-    const path = join(dir, f.name);
+    const safeName = basename(f.name) || `file-${randomUUID()}`;
+    const path = join(dir, safeName);
     await writeFile(path, buf);
-    out.push({ path, name: f.name, mimetype: f.mimetype ?? "" });
+    out.push({ path, name: safeName, mimetype: f.mimetype ?? "" });
   }
   return out;
 }
