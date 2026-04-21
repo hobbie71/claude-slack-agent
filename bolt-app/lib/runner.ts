@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 
+const MAX_PROMPT_BYTES = 100 * 1024;
+const MAX_STDOUT_BYTES = 10 * 1024 * 1024;
+
 export interface RunOptions {
   prompt: string;
   resumeSessionId?: string;
@@ -27,6 +30,16 @@ export async function runClaude(opts: RunOptions): Promise<RunResult> {
     timeoutMs = 10 * 60 * 1000,
   } = opts;
 
+  const promptBytes = Buffer.byteLength(prompt, "utf8");
+  if (promptBytes > MAX_PROMPT_BYTES) {
+    return {
+      ok: false,
+      text: "",
+      durationMs: 0,
+      error: `prompt too large (${Math.round(promptBytes / 1024)} KB, max ${MAX_PROMPT_BYTES / 1024} KB). Please shorten your message or attach fewer files.`,
+    };
+  }
+
   const args = [
     "-p",
     prompt,
@@ -48,8 +61,10 @@ export async function runClaude(opts: RunOptions): Promise<RunResult> {
     });
 
     let stdout = "";
+    let stdoutBytes = 0;
     let stderr = "";
     let killedForTimeout = false;
+    let killedForOverflow = false;
 
     const killTimer = setTimeout(() => {
       killedForTimeout = true;
@@ -59,6 +74,15 @@ export async function runClaude(opts: RunOptions): Promise<RunResult> {
 
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
+      if (killedForOverflow) return;
+      stdoutBytes += Buffer.byteLength(chunk, "utf8");
+      if (stdoutBytes > MAX_STDOUT_BYTES) {
+        killedForOverflow = true;
+        clearTimeout(killTimer);
+        child.kill("SIGTERM");
+        setTimeout(() => child.kill("SIGKILL"), 5_000);
+        return;
+      }
       stdout += chunk;
     });
 
@@ -80,6 +104,16 @@ export async function runClaude(opts: RunOptions): Promise<RunResult> {
     child.on("close", (code) => {
       clearTimeout(killTimer);
       const durationMs = Date.now() - start;
+
+      if (killedForOverflow) {
+        resolve({
+          ok: false,
+          text: "",
+          durationMs,
+          error: `output exceeded ${MAX_STDOUT_BYTES / (1024 * 1024)} MB cap; child process killed to prevent OOM`,
+        });
+        return;
+      }
 
       if (killedForTimeout) {
         resolve({

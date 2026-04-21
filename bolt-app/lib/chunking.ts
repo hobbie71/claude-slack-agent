@@ -50,13 +50,24 @@ export async function postLong(opts: PostLongOpts): Promise<void> {
     text: `Output is ${text.length.toLocaleString()} chars — uploading full text as a file.\n\n*Preview:*\n${preview}${preview.length < chunks[0].length ? "\n…" : ""}`,
   });
 
-  await client.files.uploadV2({
-    channel_id: channel,
-    thread_ts: threadTs,
-    filename: `${filenameHint}.md`,
-    content: text,
-    title: `${filenameHint}.md`,
-  });
+  try {
+    await client.files.uploadV2({
+      channel_id: channel,
+      thread_ts: threadTs,
+      filename: `${filenameHint}.md`,
+      content: text,
+      title: `${filenameHint}.md`,
+    });
+  } catch (err) {
+    console.error("[chunking] files.uploadV2 failed:", err);
+    await client.chat
+      .postMessage({
+        channel,
+        thread_ts: threadTs,
+        text: `⚠️ Couldn't upload the full output as a file (${(err as Error).message}). The preview above is all that was returned.`,
+      })
+      .catch((e) => console.error("[chunking] fallback postMessage failed:", e));
+  }
 }
 
 function chunk(text: string, size: number): string[] {

@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { withThreadLock } from "./mutex.ts";
 
 const SESSIONS_PATH = join(homedir(), ".claude", "slack", "sessions.json");
+const LOCK_KEY = "__sessions__";
 
 type Sessions = Record<string, string>;
 
@@ -23,6 +25,8 @@ function key(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
 }
 
+// Lock-free read. A stale miss here just causes Claude to start a fresh
+// session instead of resuming — acceptable. Writers hold LOCK_KEY.
 export async function getSessionId(
   channelId: string,
   threadTs: string,
@@ -36,16 +40,20 @@ export async function setSessionId(
   threadTs: string,
   sessionId: string,
 ): Promise<void> {
-  const data = await load();
-  data[key(channelId, threadTs)] = sessionId;
-  await save(data);
+  await withThreadLock(LOCK_KEY, async () => {
+    const data = await load();
+    data[key(channelId, threadTs)] = sessionId;
+    await save(data);
+  });
 }
 
 export async function clearSessionId(
   channelId: string,
   threadTs: string,
 ): Promise<void> {
-  const data = await load();
-  delete data[key(channelId, threadTs)];
-  await save(data);
+  await withThreadLock(LOCK_KEY, async () => {
+    const data = await load();
+    delete data[key(channelId, threadTs)];
+    await save(data);
+  });
 }

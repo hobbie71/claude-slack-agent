@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { withThreadLock } from "./mutex.ts";
 
 const CHANNELS_PATH = join(homedir(), ".claude", "slack", "channels.json");
+const LOCK_KEY = "__channels__";
 
 export type ChannelType =
   | "interactive"
@@ -38,6 +40,9 @@ async function save(reg: Registry): Promise<void> {
   await writeFile(CHANNELS_PATH, JSON.stringify(reg, null, 2) + "\n", "utf8");
 }
 
+// Lock-free reads. A stale miss here triggers the welcome/onboarding flow
+// in an in-flight registration, which self-corrects on the next message.
+// Writers (upsertChannel) hold LOCK_KEY.
 export async function getChannel(
   id: string,
 ): Promise<ChannelEntry | undefined> {
@@ -46,11 +51,13 @@ export async function getChannel(
 }
 
 export async function upsertChannel(entry: ChannelEntry): Promise<void> {
-  const reg = await load();
-  const i = reg.channels.findIndex((c) => c.id === entry.id);
-  if (i >= 0) reg.channels[i] = entry;
-  else reg.channels.push(entry);
-  await save(reg);
+  await withThreadLock(LOCK_KEY, async () => {
+    const reg = await load();
+    const i = reg.channels.findIndex((c) => c.id === entry.id);
+    if (i >= 0) reg.channels[i] = entry;
+    else reg.channels.push(entry);
+    await save(reg);
+  });
 }
 
 export async function findByType(

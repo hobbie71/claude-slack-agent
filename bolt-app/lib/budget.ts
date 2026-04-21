@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { withThreadLock } from "./mutex.ts";
 
 const BUDGET_PATH = join(homedir(), ".claude", "slack", "budget.json");
+const LOCK_KEY = "__budget__";
 
 interface Budget {
   daily_cap_usd: number;
@@ -30,6 +32,8 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Lock-free read. A slightly stale value is fine here — the budget gate is
+// advisory, not transactional. Writers (recordSpend) hold the lock.
 export async function checkBudget(): Promise<{
   ok: boolean;
   spent: number;
@@ -42,13 +46,15 @@ export async function checkBudget(): Promise<{
 
 export async function recordSpend(usd: number): Promise<void> {
   if (!(usd > 0)) return;
-  const b = await load();
-  const k = today();
-  b.spent[k] = (b.spent[k] ?? 0) + usd;
-  // Keep only the last 30 days.
-  const cutoff = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  for (const d of Object.keys(b.spent)) {
-    if (d < cutoff) delete b.spent[d];
-  }
-  await save(b);
+  await withThreadLock(LOCK_KEY, async () => {
+    const b = await load();
+    const k = today();
+    b.spent[k] = (b.spent[k] ?? 0) + usd;
+    // Keep only the last 30 days.
+    const cutoff = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    for (const d of Object.keys(b.spent)) {
+      if (d < cutoff) delete b.spent[d];
+    }
+    await save(b);
+  });
 }

@@ -105,11 +105,13 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
       text,
     );
     if (!looksLikeRegistration) {
-      await client.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        text: welcomeMessage(),
-      });
+      await safe(() =>
+        client.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: welcomeMessage(),
+        }),
+      );
       return;
     }
     // fall through to let Claude handle the registration text
@@ -118,11 +120,13 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
   // Budget gate.
   const budget = await checkBudget();
   if (!budget.ok) {
-    await client.chat.postMessage({
-      channel,
-      thread_ts: threadTs,
-      text: `⚠️ Daily budget reached ($${budget.spent.toFixed(2)} / $${budget.cap.toFixed(2)}). Skipping this run. Edit \`~/.claude/slack/budget.json\` to adjust.`,
-    });
+    await safe(() =>
+      client.chat.postMessage({
+        channel,
+        thread_ts: threadTs,
+        text: `⚠️ Daily budget reached ($${budget.spent.toFixed(2)} / $${budget.cap.toFixed(2)}). Skipping this run. Edit \`~/.claude/slack/budget.json\` to adjust.`,
+      }),
+    );
     return;
   }
 
@@ -175,14 +179,16 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
       maxBudgetUsd: 2,
     });
 
+    // Best-effort: each step runs independently so one failure (e.g. disk full on
+    // setSessionId) doesn't prevent the user from seeing the Claude reply.
     if (result.sessionId) {
-      await setSessionId(channel, threadTs, result.sessionId);
+      await safe(() => setSessionId(channel, threadTs, result.sessionId!));
     } else if (!result.ok && resumeId) {
       // Resume probably failed — clear so next message starts fresh.
-      await clearSessionId(channel, threadTs);
+      await safe(() => clearSessionId(channel, threadTs));
     }
     if (typeof result.costUsd === "number") {
-      await recordSpend(result.costUsd);
+      await safe(() => recordSpend(result.costUsd!));
     }
 
     await safe(() =>
@@ -190,22 +196,26 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
     );
 
     if (result.ok) {
-      await postLong({
-        client,
-        channel,
-        threadTs,
-        text: result.text || "_(empty response)_",
-        filenameHint: "claude-response",
-      });
+      await safe(() =>
+        postLong({
+          client,
+          channel,
+          threadTs,
+          text: result.text || "_(empty response)_",
+          filenameHint: "claude-response",
+        }),
+      );
       await safe(() =>
         client.reactions.add({ channel, timestamp: eventTs, name: "white_check_mark" }),
       );
     } else {
-      await client.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        text: `❌ ${result.error ?? "unknown error"}`,
-      });
+      await safe(() =>
+        client.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: `❌ ${result.error ?? "unknown error"}`,
+        }),
+      );
       await safe(() =>
         client.reactions.add({ channel, timestamp: eventTs, name: "x" }),
       );
