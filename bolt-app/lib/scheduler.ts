@@ -44,7 +44,8 @@ export interface CalendarInterval {
 }
 
 function label(name: string): string {
-  return `com.claude.sched.${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
+  // Strip dots too: they collide with launchd's reverse-DNS label namespacing.
+  return `com.claude.sched.${name.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
 function plistPath(name: string): string {
@@ -149,9 +150,22 @@ export async function removeSchedule(name: string): Promise<void> {
     "bootout",
     `gui/${UID}`,
     agentPath(name),
-  ]).catch(() => {});
-  await unlink(agentPath(name)).catch(() => {});
-  await unlink(plistPath(name)).catch(() => {});
+  ]).catch((e: unknown) => {
+    const stderr = (e as { stderr?: string }).stderr ?? "";
+    // "No such process" / exit 36 = service wasn't loaded. That's fine.
+    if (/No such process|not loaded/i.test(stderr)) return;
+    console.error(`[scheduler] bootout failed for ${name}:`, stderr || String(e));
+  });
+  await unlink(agentPath(name)).catch((e: unknown) => {
+    if ((e as { code?: string }).code !== "ENOENT") {
+      console.error(`[scheduler] unlink agentPath(${name}) failed:`, e);
+    }
+  });
+  await unlink(plistPath(name)).catch((e: unknown) => {
+    if ((e as { code?: string }).code !== "ENOENT") {
+      console.error(`[scheduler] unlink plistPath(${name}) failed:`, e);
+    }
+  });
 }
 
 export async function listSchedules(): Promise<

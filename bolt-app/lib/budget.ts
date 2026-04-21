@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { withThreadLock } from "./mutex.ts";
@@ -12,14 +12,33 @@ interface Budget {
 }
 
 async function load(): Promise<Budget> {
+  let raw: string;
   try {
-    const raw = await readFile(BUDGET_PATH, "utf8");
+    raw = await readFile(BUDGET_PATH, "utf8");
+  } catch (err) {
+    // ENOENT on first run — silently return defaults.
+    if ((err as { code?: string }).code !== "ENOENT") {
+      console.error("[budget] read failed:", err);
+    }
+    return { daily_cap_usd: 10, spent: {} };
+  }
+  try {
     const parsed = JSON.parse(raw) as Partial<Budget>;
     return {
       daily_cap_usd: parsed.daily_cap_usd ?? 10,
       spent: parsed.spent ?? {},
     };
-  } catch {
+  } catch (err) {
+    // Corruption: preserve the broken file as .bak before we overwrite it
+    // so today's spent isn't silently erased.
+    const backup = `${BUDGET_PATH}.corrupt-${Date.now()}.bak`;
+    console.error(
+      `[budget] ⚠️ budget.json is corrupt. Backing up to ${backup} and resetting. Error:`,
+      err,
+    );
+    await rename(BUDGET_PATH, backup).catch((e) =>
+      console.error("[budget] rename to .bak failed:", e),
+    );
     return { daily_cap_usd: 10, spent: {} };
   }
 }

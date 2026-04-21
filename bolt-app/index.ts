@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 import { isAllowed, allowedList } from "./lib/auth.ts";
-import { withThreadLock } from "./lib/mutex.ts";
+import { withThreadLock, MutexOverflowError } from "./lib/mutex.ts";
 import { runClaude } from "./lib/runner.ts";
 import {
   getSessionId,
@@ -15,7 +15,8 @@ import {
 } from "./lib/channels.ts";
 import { postLong } from "./lib/chunking.ts";
 import { checkBudget, recordSpend } from "./lib/budget.ts";
-import { downloadFiles } from "./lib/attachments.ts";
+import { downloadFiles, cleanupTempDir } from "./lib/attachments.ts";
+import { isDuplicate } from "./lib/dedup.ts";
 import { startSchedulerServer } from "./lib/scheduler.ts";
 
 const required = [
@@ -38,7 +39,12 @@ const app = new App({
 
 console.log(`[startup] Allowed user IDs: ${allowedList().join(", ")}`);
 
-app.event("app_mention", async ({ event, client, say }: { event: any; client: WebClient; say: any }) => {
+app.event("app_mention", async ({ event, body, client, say }: { event: any; body: any; client: WebClient; say: any }) => {
+  if (event.subtype) return; // skip mentions inside edited/deleted/bot messages
+  if (isDuplicate(body?.event_id)) {
+    console.log(`[dedup] skipping duplicate event ${body.event_id}`);
+    return;
+  }
   await handleIncoming({
     channel: event.channel,
     user: event.user,
@@ -53,9 +59,13 @@ app.event("app_mention", async ({ event, client, say }: { event: any; client: We
   });
 });
 
-app.event("message", async ({ event, client, say }: { event: any; client: WebClient; say: any }) => {
+app.event("message", async ({ event, body, client, say }: { event: any; body: any; client: WebClient; say: any }) => {
   if (event.subtype) return; // bot_message, channel_join, etc.
   if (event.channel_type !== "im") return; // only DMs here; channel msgs need @mention
+  if (isDuplicate(body?.event_id)) {
+    console.log(`[dedup] skipping duplicate event ${body.event_id}`);
+    return;
+  }
   const msg = event as unknown as {
     user?: string;
     text?: string;
@@ -132,16 +142,17 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
 
   const threadKey = `${channel}:${threadTs}`;
 
-  await withThreadLock(threadKey, async () => {
+  try {
+    await withThreadLock(threadKey, async () => {
     await safe(() =>
       client.reactions.add({ channel, timestamp: eventTs, name: "hourglass_flowing_sand" }),
     );
 
     let promptText = text.trim();
 
-    // Attach any files from this message.
+    // Attach any files from this message. Clean up the temp dir after the Claude run returns.
     const botToken = process.env.SLACK_BOT_TOKEN!;
-    const downloaded = await downloadFiles(files, botToken);
+    const { files: downloaded, tempDir } = await downloadFiles(files, botToken);
     if (downloaded.length > 0) {
       const list = downloaded
         .map((f) => `- ${f.name} (${f.mimetype}) at \`${f.path}\``)
@@ -172,12 +183,18 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
 
     const resumeId = await getSessionId(channel, threadTs);
 
-    const result = await runClaude({
-      prompt: promptText,
-      resumeSessionId: resumeId,
-      cwd: channelEntry?.cwd,
-      maxBudgetUsd: 2,
-    });
+    let result;
+    try {
+      result = await runClaude({
+        prompt: promptText,
+        resumeSessionId: resumeId,
+        cwd: channelEntry?.cwd,
+        maxBudgetUsd: 2,
+      });
+    } finally {
+      // Clean up downloaded attachments whether Claude succeeded, failed, or threw.
+      if (tempDir) void cleanupTempDir(tempDir);
+    }
 
     // Best-effort: each step runs independently so one failure (e.g. disk full on
     // setSessionId) doesn't prevent the user from seeing the Claude reply.
@@ -237,6 +254,19 @@ async function handleIncoming(args: IncomingArgs): Promise<void> {
       );
     }
   });
+  } catch (err) {
+    if (err instanceof MutexOverflowError) {
+      await safe(() =>
+        client.chat.postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: "⚠️ Too many pending messages in this thread — slow down a bit. I'll pick up from where we left off once I catch up.",
+        }),
+      );
+      return;
+    }
+    console.error("[handleIncoming] unexpected error:", err);
+  }
 }
 
 function stripMention(text: string): string {
