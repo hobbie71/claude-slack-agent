@@ -1,0 +1,25 @@
+# Credentials — NEVER commit
+bolt-app/.env
+
+# Dependencies
+bolt-app/node_modules/
+
+# Runtime state (user-specific)
+sessions.json
+budget.json
+channels.json
+
+# Logs
+logs/
+!logs/.gitkeep
+
+# Generated launchd plists (user-specific paths baked in)
+schedules/
+!schedules/example.plist
+com.claude.slack-agent.plist
+
+# Bun lock (regenerated on install)
+bolt-app/bun.lock
+
+# macOS
+.DS_Store

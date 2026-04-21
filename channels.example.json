@@ -1,0 +1,31 @@
+{
+  "channels": [
+    {
+      "id": "C0ABC1234",
+      "name": "#claude-chat",
+      "type": "interactive",
+      "description": "Main channel for interactive commands",
+      "registered": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "C0DEF5678",
+      "name": "#claude-notifications",
+      "type": "notifications",
+      "description": "Automated task results and scheduled updates"
+    },
+    {
+      "id": "C0GHI9012",
+      "name": "#claude-logs",
+      "type": "logs",
+      "description": "Verbose debug output — bot @mentions you only on failures"
+    },
+    {
+      "id": "C0JKL3456",
+      "name": "#website-redesign",
+      "type": "project",
+      "description": "Project channel for the website redesign",
+      "cwd": "/Users/you/code/website",
+      "skillAllowlist": ["create-pr", "test", "check"]
+    }
+  ]
+}

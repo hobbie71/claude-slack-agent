@@ -1,0 +1,57 @@
+<!--
+  EXAMPLE — not a real plist. Shows the format the scheduler generates.
+  The bot creates these automatically when you say "schedule X every day at 9am".
+  Do not load this file with launchctl.
+-->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude.sched.claude-sync</string>
+
+  <!-- What to run: the wrapper script + the skill name + budget cap -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/YOU/.claude/slack/bin/run-scheduled.sh</string>
+    <string>claude-sync</string>   <!-- skill name -->
+    <string>5</string>             <!-- max budget USD per run -->
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU</string>
+
+  <!-- When to run. This example: every day at 10:00 PM local time. -->
+  <!-- launchd uses your Mac's timezone, NOT UTC. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>22</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <!-- For weekdays only, use an array of dicts: -->
+  <!--
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
+  -->
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/.claude/slack/logs/com.claude.sched.claude-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/.claude/slack/logs/com.claude.sched.claude-sync.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>/Users/YOU</string>
+    <key>PATH</key><string>/Users/YOU/.local/bin:/Users/YOU/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SLACK_COMPLETION_WEBHOOK</key><string>https://hooks.slack.com/services/YOUR/WEBHOOK/URL</string>
+  </dict>
+</dict>
+</plist>
