@@ -46,7 +46,7 @@ export CLAUDE_SLACK=0
 
 # Run claude in the background with a hard timeout. macOS has no built-in
 # `timeout` command, so we implement it with a watchdog subshell.
-"$CLAUDE_BIN" --bare -p "/$SKILL" \
+"$CLAUDE_BIN" -p "Use the Skill tool to invoke the $SKILL skill." \
   --permission-mode bypassPermissions \
   --output-format json \
   --max-budget-usd "$BUDGET" \
@@ -103,8 +103,17 @@ else
   HEADER="$EMOJI *$SKILL* failed (exit $EXIT, ${ELAPSED}s)"
 fi
 
+# Convert Markdown → Slack mrkdwn:
+#   "### Header" / "## Header" / "# Header"  →  "*Header*"
+#   "**bold**"                                →  "*bold*"
+#   "[text](url)"                             →  "<url|text>"
+SUMMARY=$(printf '%s' "$SUMMARY" | sed -E \
+  -e 's/^#{1,6}[[:space:]]+(.*)$/*\1*/' \
+  -e 's/\*\*([^*]+)\*\*/*\1*/g' \
+  -e 's/\[([^][]+)\]\(([^)]+)\)/<\2|\1>/g')
+
 # Build the JSON payload safely with jq so quotes/newlines survive.
-PAYLOAD=$(jq -n --arg text "$HEADER"$'\n```\n'"$SUMMARY"$'\n```' '{text:$text}')
+PAYLOAD=$(jq -n --arg text "$HEADER"$'\n\n'"$SUMMARY" '{text:$text}')
 
 curl -s -X POST "$SLACK_COMPLETION_WEBHOOK" \
   -H 'content-type: application/json' \
