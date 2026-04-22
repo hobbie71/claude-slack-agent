@@ -33,7 +33,7 @@ All skills in `~/.claude/skills/` are available.
 
 Schedules are managed via launchd plists in `~/.claude/slack/schedules/`, not cron.
 
-- "Show my schedules" → list plist files + parsed schedules
+- "Show my schedules" / "what do I have scheduled" → `GET http://127.0.0.1:7823/schedules` and render the `schedule_human` field for each entry. Do NOT read `~/.claude/slack/schedules/` yourself — the endpoint is the source of truth.
 - "Schedule X every weekday at 9am" → parse to `StartCalendarInterval`, POST to `http://127.0.0.1:7823/schedule` (the Bolt app's localhost endpoint)
 - "Remove the X schedule" → POST to `http://127.0.0.1:7823/unschedule`
 - "Kill all schedules" → POST to `http://127.0.0.1:7823/kill-all`
