@@ -150,3 +150,33 @@ Lets Socket Mode keep the connection alive and wake the Mac when a Slack event a
 - **No reply in Slack** → check terminal. If bot silently ignores you, your user ID isn't in `ALLOWED_USER_IDS`.
 - **"dispatch_failed"** → Slack timed out waiting for ack (>3s). Bot is probably hung on a long `claude` call; restart.
 - **Bot replies but says "command not found: claude"** → launchd plist (later) needs explicit PATH. For now, the bot inherits your shell's PATH so running via `bun run start` in your terminal works.
+
+## Scheduled runs and iTerm
+
+Scheduled runs are routed through iTerm so macOS TCC attributes them to iTerm (whose binary path is stable) instead of the Claude Code binary (whose path changes on every auto-update). Without this, every Claude Code update would silently revoke Documents/Desktop/network access for scheduled runs.
+
+**One-time setup:**
+
+1. Open iTerm → Settings → Profiles. Duplicate the default profile and name it `Scheduled Agent`.
+2. In the `Session` tab of that profile, set **"When command exits" → "Close the window"**. Prevents hidden windows from accumulating after scheduled runs complete.
+3. In System Settings → Privacy & Security → Files and Folders, confirm iTerm has access to at least Documents, Desktop, Downloads, and any other folders your scheduled skills touch (e.g. your Obsidian vault).
+4. Ensure `caffeinate` is running (see below) so the Mac doesn't sleep through scheduled runs.
+
+**Verifying it works:** run the acceptance test in `docs/superpowers/plans/2026-04-22-slack-agent-reliability-fixes.md` (Task 7 Step 4) after each Claude Code update to confirm scheduled runs still have filesystem access.
+
+## Caffeinate (keep the Mac awake 24/7)
+
+Install the caffeinate LaunchAgent so scheduled runs and Slack messages fire in real time even when the display sleeps:
+
+```bash
+cp /Users/javiertamayo/.claude/slack/com.claude.caffeinate.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude.caffeinate.plist
+```
+
+Verify:
+
+```bash
+pmset -g assertions | grep PreventUserIdleSystemSleep
+```
+
+Expected: a line attributed to `caffeinate`. If absent, re-run the `bootstrap` command after `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.claude.caffeinate.plist`.
