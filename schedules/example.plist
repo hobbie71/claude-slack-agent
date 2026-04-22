@@ -14,7 +14,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/YOU/.claude/slack/bin/run-scheduled.sh</string>
+    <string>/Users/YOU/.claude/slack/bin/launch-via-iterm.sh</string>
     <string>claude-sync</string>   <!-- skill name -->
     <string>5</string>             <!-- max budget USD per run -->
   </array>
