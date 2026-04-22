@@ -31,7 +31,7 @@ const LAUNCH_AGENTS_DIR = join(
   "Library",
   "LaunchAgents",
 );
-const RUN_SCRIPT = join(homedir(), ".claude", "slack", "bin", "run-scheduled.sh");
+const LAUNCH_WRAPPER = join(homedir(), ".claude", "slack", "bin", "launch-via-iterm.sh");
 const UID = userInfo().uid;
 
 export interface ScheduleRequest {
@@ -87,7 +87,7 @@ function buildPlist(req: ScheduleRequest, webhook: string): string {
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${e(RUN_SCRIPT)}</string>
+    <string>${e(LAUNCH_WRAPPER)}</string>
     <string>${e(req.name)}</string>
     <string>${e(String(req.maxBudgetUsd ?? 5))}</string>
   </array>
