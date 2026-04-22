@@ -88,6 +88,20 @@ describe("humanizeCalendarIntervals", () => {
     const out = humanizeCalendarIntervals(intervals);
     expect(out).toMatch(/^2 entries:/);
   });
+
+  test("saturday-sunday at the same time → Weekends", () => {
+    expect(humanizeCalendarIntervals([
+      { Hour: 9, Minute: 0, Weekday: 0 },
+      { Hour: 9, Minute: 0, Weekday: 6 },
+    ])).toBe("Weekends at 9:00 AM");
+  });
+
+  test("Weekday=7 is normalized to Sunday", () => {
+    expect(humanizeCalendarIntervals([
+      { Hour: 9, Minute: 0, Weekday: 7 },
+      { Hour: 9, Minute: 0, Weekday: 6 },
+    ])).toBe("Weekends at 9:00 AM");
+  });
 });
 
 describe("parseScheduleMeta", () => {

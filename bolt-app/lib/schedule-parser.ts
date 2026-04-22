@@ -59,6 +59,7 @@ export function parseScheduleMeta(plistXml: string): ScheduleMeta {
   const rawBudget = args[args.length - 1];
   const n = Number(rawBudget);
   if (!Number.isFinite(n) || n <= 0 || n > 1000) {
+    // Budget is absent or implausible — the last arg is the skill name, not a number.
     return { skill: args[args.length - 1] || null, budget_usd: null };
   }
   return { skill, budget_usd: n };
