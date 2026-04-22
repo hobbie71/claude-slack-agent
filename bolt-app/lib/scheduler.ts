@@ -4,6 +4,12 @@ import { promisify } from "node:util";
 import { readFile, writeFile, unlink, readdir } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
+import {
+  parseCalendarIntervals,
+  humanizeCalendarIntervals,
+  parseScheduleMeta,
+  type CalendarInterval,
+} from "./schedule-parser.ts";
 
 const runBin = promisify(execFile);
 
@@ -33,14 +39,6 @@ export interface ScheduleRequest {
   calendar: CalendarInterval | CalendarInterval[];
   cwd?: string;
   maxBudgetUsd?: number;
-}
-
-export interface CalendarInterval {
-  Minute?: number;
-  Hour?: number;
-  Day?: number;
-  Weekday?: number; // 0=Sun, 1=Mon, ... 7=Sun
-  Month?: number;
 }
 
 function label(name: string): string {
@@ -183,6 +181,35 @@ export async function listSchedules(): Promise<
   return out;
 }
 
+export interface DescribedSchedule {
+  name: string;
+  label: string;
+  skill: string | null;
+  budget_usd: number | null;
+  schedule_human: string;
+  schedule_raw: CalendarInterval[];
+  plist_path: string;
+}
+
+export async function describeSchedules(): Promise<DescribedSchedule[]> {
+  const raw = await listSchedules();
+  return raw
+    .filter((s) => s.name !== "example")
+    .map((s) => {
+      const intervals = parseCalendarIntervals(s.plist);
+      const meta = parseScheduleMeta(s.plist);
+      return {
+        name: s.name,
+        label: `com.claude.sched.${s.name}`,
+        skill: meta.skill,
+        budget_usd: meta.budget_usd,
+        schedule_human: humanizeCalendarIntervals(intervals),
+        schedule_raw: intervals,
+        plist_path: s.plistPath,
+      };
+    });
+}
+
 export async function killAll(): Promise<number> {
   const all = await listSchedules();
   for (const s of all) await removeSchedule(s.name);
@@ -197,6 +224,24 @@ export async function startSchedulerServer(opts: {
   port: number;
 }): Promise<void> {
   const server = createServer(async (req, res) => {
+    if (req.method === "GET") {
+      const url = req.url ?? "";
+      if (url === "/schedules") {
+        try {
+          const list = await describeSchedules();
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, schedules: list }));
+        } catch (err) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({ ok: false, error: (err as Error).message }),
+          );
+        }
+        return;
+      }
+      res.writeHead(404).end("Not Found");
+      return;
+    }
     if (req.method !== "POST") {
       res.writeHead(405).end("Method Not Allowed");
       return;
