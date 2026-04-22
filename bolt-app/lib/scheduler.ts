@@ -191,16 +191,20 @@ export interface DescribedSchedule {
   plist_path: string;
 }
 
+// Committed plists that aren't real schedules — they ship in the repo as
+// templates or documentation but should never appear in listings.
+const RESERVED_SCHEDULE_NAMES = new Set(["example"]);
+
 export async function describeSchedules(): Promise<DescribedSchedule[]> {
   const raw = await listSchedules();
   return raw
-    .filter((s) => s.name !== "example")
+    .filter((s) => !RESERVED_SCHEDULE_NAMES.has(s.name))
     .map((s) => {
       const intervals = parseCalendarIntervals(s.plist);
       const meta = parseScheduleMeta(s.plist);
       return {
         name: s.name,
-        label: `com.claude.sched.${s.name}`,
+        label: label(s.name),
         skill: meta.skill,
         budget_usd: meta.budget_usd,
         schedule_human: humanizeCalendarIntervals(intervals),
