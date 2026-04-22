@@ -158,6 +158,12 @@ Register a channel by inviting the bot and telling it: "This is a project channe
 | Mac powered off | No | Missed |
 | After reboot + login | Yes (auto-starts) | Yes |
 
+## Known limitations
+
+- **iTerm must be running when a schedule fires.** Scheduled runs are routed through iTerm (via `bin/launch-via-iterm.sh`) so that macOS TCC attributes filesystem access to iTerm's stable binary path rather than Claude Code's per-version path — this is what makes permissions survive Claude auto-updates. The side effect: if iTerm is quit, or the Mac is booted but you haven't logged in yet, the `osascript` handoff fails silently, the wrapper exits 0, and no Slack notification is sent (launchd sees success because it never reached `run-scheduled.sh`). Keep iTerm running, or accept that schedules firing in those windows will silently no-op. Running `caffeinate` keeps the Mac awake but doesn't keep iTerm open.
+- **`linkedin-job-apply` plist pins an nvm-versioned node path.** `schedules/com.claude.sched.linkedin-job-apply.plist` has `/Users/.../.nvm/versions/node/v22.12.0/bin` hardcoded in its `PATH`. If nvm's default node version changes, that path goes stale. The skill itself drives Chrome rather than using node directly, so this rarely bites — but if you see "command not found" errors from that schedule after an nvm upgrade, this is why. Regenerating the schedule via `POST /schedule` writes a plist without the nvm prefix.
+- **Claude Code updates reset TCC every time.** The iTerm routing makes this harmless for schedules, but if you run `claude` directly from a *non-iTerm* context (a plain Terminal, a different launcher, a CI-like wrapper), macOS will prompt for filesystem access again after each Claude update. Only iTerm-spawned runs inherit the stable TCC attribution.
+
 ## License
 
 MIT
